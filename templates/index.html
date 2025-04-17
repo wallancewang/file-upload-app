@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Java文件行数统计</title>
+    <style>
+        .container { max-width: 800px; margin: 20px auto; padding: 20px; }
+        .progress { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        .results { margin-top: 20px; }
+        .file-item { margin: 5px 0; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>上传ZIP文件</h1>
+        <input type="file" id="fileInput" accept=".zip" />
+        <button onclick="handleUpload()">提交</button>
+        
+        <div id="progress" class="progress"></div>
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        let taskId = null;
+
+        async function handleUpload() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) {
+                alert("请选择文件");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('http://localhost:8000/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.task_id) {
+                    taskId = data.task_id;
+                    startPolling();
+                } else if (data.error) {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError("上传失败: " + error.message);
+            }
+        }
+
+        function startPolling() {
+            const interval = setInterval(async () => {
+                if (!taskId) {
+                    clearInterval(interval);
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`http://localhost:8000/progress/${taskId}`);
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        showError(data.error);
+                        clearInterval(interval);
+                        return;
+                    }
+
+                    updateProgress(data);
+
+                    if (data.completed || data.error) {
+                        clearInterval(interval);
+                        taskId = null;
+                    }
+                } catch (error) {
+                    showError("获取进度失败: " + error.message);
+                    clearInterval(interval);
+                    taskId = null;
+                }
+            }, 1000);
+        }
+
+        function updateProgress(data) {
+            const progressDiv = document.getElementById('progress');
+            const resultsDiv = document.getElementById('results');
+            
+            // 更新进度
+            progressDiv.innerHTML = `
+                <h3>处理进度</h3>
+                <p>已完成 ${data.processed}/${data.total} 个文件</p>
+                ${data.error ? `<p class="error">错误: ${data.error}</p>` : ''}
+            `;
+
+            // 更新结果
+            let resultsHtml = '<h3>处理结果</h3>';
+            for (const [file, lines] of Object.entries(data.results)) {
+                resultsHtml += `<div class="file-item">${file}: ${lines} 行</div>`;
+            }
+            resultsDiv.innerHTML = resultsHtml;
+        }
+
+        function showError(message) {
+            const progressDiv = document.getElementById('progress');
+            progressDiv.innerHTML = `<p class="error">${message}</p>`;
+        }
+    </script>
+</body>
+</html>
